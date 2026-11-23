@@ -127,15 +127,15 @@ static void axs_hook_volume_class(Class cls, const char *label) {
         int kind = axs_classify_volume_selector(name);
         if (kind == 0) continue;
 
-        IMP replacement = NULL;
+        const void *replacement = NULL;
         switch (kind) {
-            case 1: replacement = (IMP)axs_volume_press_up; break;
-            case 2: replacement = (IMP)axs_volume_press_down; break;
-            case 3: replacement = (IMP)axs_volume_release_up; break;
-            default: replacement = (IMP)axs_volume_release_down; break;
+            case 1: replacement = (const void *)axs_volume_press_up; break;
+            case 2: replacement = (const void *)axs_volume_press_down; break;
+            case 3: replacement = (const void *)axs_volume_release_up; break;
+            default: replacement = (const void *)axs_volume_release_down; break;
         }
 
-        IMP original = NULL;
+        const void *original = NULL;
         MSHookMessageEx(cls, sel, replacement, &original);
         if (original) {
             axs_original_imps()[name] = [NSValue valueWithPointer:original];
