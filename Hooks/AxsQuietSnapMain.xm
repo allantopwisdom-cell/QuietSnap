@@ -55,7 +55,7 @@ static NSMutableDictionary<NSString *, NSValue *> *axs_original_imps(void) {
 static void axs_call_original(id self, SEL _cmd) {
     NSValue *value = axs_original_imps()[NSStringFromSelector(_cmd)];
     if (!value) return;
-    IMP imp = (IMP)[value pointerValue];
+    IMP imp = (IMP)(const void *)[value pointerValue];
     if (!imp) return;
 
     // Every variant we hook takes either zero arguments or a single object.
@@ -139,7 +139,7 @@ static void axs_hook_volume_class(Class cls, const char *label) {
         if (!m) continue;
         IMP original = method_setImplementation(m, replacement);
         if (original) {
-            axs_original_imps()[name] = [NSValue valueWithPointer:original];
+            axs_original_imps()[name] = [NSValue valueWithPointer:(const void *)original];
             [hooked addObject:name];
         }
     }
