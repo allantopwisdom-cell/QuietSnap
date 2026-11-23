@@ -10,7 +10,7 @@
 @end
 
 @interface AxsQuietSnapCCAudio : NSObject
-@property (nonatomic, assign) BOOL selected;
+@property (nonatomic, assign) BOOL axs_quietsnap_selected;
 @end
 
 @implementation AxsQuietSnapCCAudio
@@ -33,11 +33,11 @@
             return [capture axs_quietsnap_isRecordingAudio];
         }
     }
-    return self.selected;
+    return self.axs_quietsnap_selected;
 }
 
 - (void)setSelected:(BOOL)selected {
-    self.selected = selected;
+    self.axs_quietsnap_selected = selected;
     CFStringRef name = (__bridge CFStringRef)(selected
         ? @"com.axs.quietsnap.cc.audio.start"
         : @"com.axs.quietsnap.cc.audio.stop");
