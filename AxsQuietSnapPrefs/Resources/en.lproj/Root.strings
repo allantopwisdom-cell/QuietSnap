@@ -47,3 +47,5 @@
 "日期格式，例如 yyyyMMdd_HHmmss。" = "Date format, e.g. yyyyMMdd_HHmmss.";
 "说明" = "Notes";
 "本插件不隐藏系统相机/麦克风指示点。首次使用若拍摄失败，请确认 SpringBoard 已获得相机与麦克风权限。" = "This tweak does not hide the system camera/microphone indicators. If the first capture fails, make sure SpringBoard is granted camera and microphone access.";
+
+"QUIETSNAP_CC_PHOTO" = "Quiet Photo";

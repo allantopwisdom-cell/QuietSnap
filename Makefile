@@ -18,4 +18,5 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 SUBPROJECTS += AxsQuietSnapPrefs
 SUBPROJECTS += AxsQuietSnapCCAudio
 SUBPROJECTS += AxsQuietSnapCCVideo
+SUBPROJECTS += AxsQuietSnapCCPhoto
 include $(THEOS_MAKE_PATH)/aggregate.mk

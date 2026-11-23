@@ -5,6 +5,7 @@
 #import "AxsQuietSnapAudio.h"
 #import "AxsQuietSnapStorage.h"
 #import "AxsQuietSnapToast.h"
+#import "AxsQuietSnapLog.h"
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
@@ -15,6 +16,7 @@ static NSString * const AxsQuietSnapCCAudioStart = @"com.axs.quietsnap.cc.audio.
 static NSString * const AxsQuietSnapCCAudioStop  = @"com.axs.quietsnap.cc.audio.stop";
 static NSString * const AxsQuietSnapCCVideoStart = @"com.axs.quietsnap.cc.video.start";
 static NSString * const AxsQuietSnapCCVideoStop  = @"com.axs.quietsnap.cc.video.stop";
+static NSString * const AxsQuietSnapCCPhotoShot  = @"com.axs.quietsnap.cc.photo";
 
 @interface AxsQuietSnapCapture ()
 @property (nonatomic, strong) AxsQuietSnapPhoto *photo;
@@ -62,6 +64,8 @@ static void axs_quietsnap_cc_notification(CFNotificationCenterRef center, void *
         [capture axs_quietsnap_setVideoRecording:YES];
     } else if ([notification isEqualToString:AxsQuietSnapCCVideoStop]) {
         [capture axs_quietsnap_setVideoRecording:NO];
+    } else if ([notification isEqualToString:AxsQuietSnapCCPhotoShot]) {
+        [capture axs_quietsnap_takePhoto];
     }
 }
 
@@ -88,7 +92,8 @@ static void axs_quietsnap_cc_notification(CFNotificationCenterRef center, void *
         // Control Center modules live in the same process but stay decoupled
         // through Darwin notifications.
         for (NSString *name in @[AxsQuietSnapCCAudioStart, AxsQuietSnapCCAudioStop,
-                                 AxsQuietSnapCCVideoStart, AxsQuietSnapCCVideoStop]) {
+                                 AxsQuietSnapCCVideoStart, AxsQuietSnapCCVideoStop,
+                                 AxsQuietSnapCCPhotoShot]) {
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                 (__bridge const void *)self, axs_quietsnap_cc_notification,
                 (__bridge CFStringRef)name, NULL,
@@ -169,6 +174,9 @@ static void axs_quietsnap_cc_notification(CFNotificationCenterRef center, void *
 }
 
 - (void)axs_quietsnap_handleGesture:(AxsQuietSnapGestureKind)kind {
+    axs_quietsnap_log(@"gesture kind=%ld enabled=%d", (long)kind,
+                      (int)[self axs_quietsnap_isEnabled]);
+
     if (kind == AxsQuietSnapGestureKindNone || ![self axs_quietsnap_isEnabled]) {
         return;
     }

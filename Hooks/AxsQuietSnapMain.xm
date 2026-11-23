@@ -1,10 +1,15 @@
+#import <string.h>
 #import <UIKit/UIKit.h>
 #import <AudioToolbox/AudioToolbox.h>
+#import <objc/runtime.h>
 #import <substrate.h>
 #import "AxsQuietSnapConfig.h"
 #import "AxsQuietSnapPrivate.h"
 #import "AxsQuietSnapGesture.h"
 #import "AxsQuietSnapCapture.h"
+#import "AxsQuietSnapLog.h"
+
+#pragma mark - Silent capture
 
 // Shutter / recording feedback is played through AudioServices. Suppress those
 // calls only while a QuietSnap capture is running and silent capture is on.
@@ -24,7 +29,6 @@ static void axs_quietsnap_play_system_sound_with_completion(SystemSoundID soundI
                                                       void (^completion)(void)) {
     if ([[AxsQuietSnapCapture axs_quietsnap_shared]
             axs_quietsnap_shouldSuppressSystemSound:(uint32_t)soundID]) {
-        // Keep the caller's contract even though nothing is played.
         if (completion) {
             dispatch_async(dispatch_get_main_queue(), completion);
         }
@@ -35,35 +39,176 @@ static void axs_quietsnap_play_system_sound_with_completion(SystemSoundID soundI
     }
 }
 
-// SpringBoard delivers physical volume button events to SBVolumeHardwareButton.
-// The same four entry points exist on iOS 15/16; hooking a missing one is inert.
-%hook SBVolumeHardwareButton
+#pragma mark - Volume button hooks
 
-- (void)_volumeUpButtonDown:(id)event {
+// SpringBoard's volume handling has been renamed several times across iOS
+// releases (`_volumeUpButtonDown` vs `volumeUpButtonDown`, with and without an
+// argument). Instead of guessing, enumerate the class at runtime and hook every
+// selector that looks like a volume press/release.
+static NSMutableDictionary<NSString *, NSValue *> *axs_original_imps(void) {
+    static NSMutableDictionary *dict;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ dict = [NSMutableDictionary dictionary]; });
+    return dict;
+}
+
+static void axs_call_original(id self, SEL _cmd) {
+    NSValue *value = axs_original_imps()[NSStringFromSelector(_cmd)];
+    if (!value) return;
+    IMP imp = (IMP)[value pointerValue];
+    if (!imp) return;
+
+    // Every variant we hook takes either zero arguments or a single object.
+    Method method = class_getInstanceMethod(object_getClass(self), _cmd);
+    if (!method) method = class_getInstanceMethod([self class], _cmd);
+    const char *types = method ? method_getTypeEncoding(method) : "v@:";
+    // Skip the two leading type chars (_C_ID / _C_CLASS) and look for arguments.
+    const char *args = types + 2;
+    if (args[0] == '\0') {
+        ((void (*)(id, SEL))imp)(self, _cmd);
+    } else {
+        ((void (*)(id, SEL, id))imp)(self, _cmd, nil);
+    }
+}
+
+static void axs_volume_press_up(id self, SEL _cmd) {
+    axs_call_original(self, _cmd);
     [[AxsQuietSnapGesture axs_quietsnap_shared] axs_quietsnap_volumeUpDown];
-    %orig;
 }
 
-- (void)_volumeUpButtonUp:(id)event {
+static void axs_volume_release_up(id self, SEL _cmd) {
+    axs_call_original(self, _cmd);
     [[AxsQuietSnapGesture axs_quietsnap_shared] axs_quietsnap_volumeUpUp];
-    %orig;
 }
 
-- (void)_volumeDownButtonDown:(id)event {
+static void axs_volume_press_down(id self, SEL _cmd) {
+    axs_call_original(self, _cmd);
     [[AxsQuietSnapGesture axs_quietsnap_shared] axs_quietsnap_volumeDownDown];
-    %orig;
 }
 
-- (void)_volumeDownButtonUp:(id)event {
+static void axs_volume_release_down(id self, SEL _cmd) {
+    axs_call_original(self, _cmd);
     [[AxsQuietSnapGesture axs_quietsnap_shared] axs_quietsnap_volumeDownUp];
-    %orig;
 }
 
-%end
+// Returns 0 when the selector is not a volume button event, otherwise the
+// direction bit (1 = up, 2 = press) so the installer can pick a handler.
+static int axs_classify_volume_selector(NSString *name) {
+    if ([name rangeOfString:@":"].location != NSNotFound) return 0;
+    NSString *lower = name.lowercaseString;
+    if ([lower rangeOfString:@"volume"].location == NSNotFound) return 0;
+
+    BOOL up = ([lower rangeOfString:@"volumeup"].location != NSNotFound);
+    BOOL down = ([lower rangeOfString:@"volumedown"].location != NSNotFound);
+    if (!up && !down) return 0;
+
+    BOOL press = NO;
+    if ([lower hasSuffix:@"buttondown"] || [lower hasSuffix:@"down"]) press = YES;
+    if ([lower hasSuffix:@"buttonup"] || [lower hasSuffix:@"up"]) press = NO;
+
+    if (up) return press ? 1 : 3;   // 1 press up, 3 release up
+    return press ? 2 : 4;           // 2 press down, 4 release down
+}
+
+static void axs_hook_volume_class(Class cls, const char *label) {
+    if (!cls) return;
+    unsigned int count = 0;
+    Method *methods = class_copyMethodList(cls, &count);
+    if (!methods) return;
+
+    NSMutableArray<NSString *> *names = [NSMutableArray array];
+    NSMutableArray<NSString *> *hooked = [NSMutableArray array];
+
+    for (unsigned int i = 0; i < count; i++) {
+        SEL sel = method_getName(methods[i]);
+        NSString *name = NSStringFromSelector(sel);
+        [names addObject:name];
+
+        int kind = axs_classify_volume_selector(name);
+        if (kind == 0) continue;
+
+        IMP replacement = NULL;
+        switch (kind) {
+            case 1: replacement = (IMP)axs_volume_press_up; break;
+            case 2: replacement = (IMP)axs_volume_press_down; break;
+            case 3: replacement = (IMP)axs_volume_release_up; break;
+            default: replacement = (IMP)axs_volume_release_down; break;
+        }
+
+        IMP original = NULL;
+        MSHookMessageEx(cls, sel, replacement, &original);
+        if (original) {
+            axs_original_imps()[name] = [NSValue valueWithPointer:original];
+            [hooked addObject:name];
+        }
+    }
+    free(methods);
+
+    axs_quietsnap_log(@"%@ %s: %u methods", @"[volume]", label, count);
+    axs_quietsnap_log(@"[volume] all methods: %@", [names componentsJoinedByString:@", "]);
+    if (hooked.count) {
+        axs_quietsnap_log(@"[volume] HOOKED %s -> %@", label,
+                          [hooked componentsJoinedByString:@", "]);
+    } else {
+        axs_quietsnap_log(@"[volume] WARNING no volume selector matched on %s", label);
+    }
+}
+
+static void axs_install_volume_hooks(void) {
+    static BOOL installed = NO;
+    if (installed) return;
+
+    NSArray<NSString *> *classNames = @[
+        @"SBVolumeHardwareButton",
+        @"SBVolumeButtonHardwareController",
+        @"SBSoundController"
+    ];
+
+    BOOL any = NO;
+    for (NSString *className in classNames) {
+        Class cls = objc_getClass(className.UTF8String);
+        if (!cls) {
+            axs_quietsnap_log(@"[volume] class missing: %@", className);
+            continue;
+        }
+        unsigned int count = 0;
+        Method *methods = class_copyMethodList(cls, &count);
+        BOOL hasVolume = NO;
+        for (unsigned int i = 0; i < count; i++) {
+            NSString *name = NSStringFromSelector(method_getName(methods[i]));
+            if ([name.lowercaseString containsString:@"volume"]) { hasVolume = YES; break; }
+        }
+        free(methods);
+        if (!hasVolume && ![className isEqualToString:@"SBVolumeHardwareButton"]) continue;
+
+        axs_hook_volume_class(cls, className.UTF8String);
+        any = YES;
+    }
+
+    if (!any) {
+        // Dump any SpringBoard class that mentions volume, to guide the next fix.
+        int total = objc_getClassList(NULL, 0);
+        if (total > 0) {
+            Class *classes = (Class *)malloc(sizeof(Class) * (unsigned long)total);
+            int real = objc_getClassList(classes, total);
+            NSMutableArray *matches = [NSMutableArray array];
+            for (int i = 0; i < real; i++) {
+                const char *name = class_getName(classes[i]);
+                if (!name) continue;
+                if (strcasestr(name, "volume")) {
+                    [matches addObject:@(name)];
+                }
+            }
+            free(classes);
+            axs_quietsnap_log(@"[volume] classes with 'volume': %@",
+                              [matches componentsJoinedByString:@", "]);
+        }
+    }
+    installed = YES;
+}
 
 %ctor {
     @autoreleasepool {
-        // Readers only load a snapshot; the preference bundle owns writes.
         [AxsQuietSnapConfig axs_quietsnap_shared];
         [AxsQuietSnapGesture axs_quietsnap_shared];
 
@@ -74,7 +219,15 @@ static void axs_quietsnap_play_system_sound_with_completion(SystemSoundID soundI
                        (void *)axs_quietsnap_play_system_sound_with_completion,
                        (void **)&axs_quietsnap_original_play_system_sound_with_completion);
 
-        NSLog(@"[QuietSnap] loaded (enabled=%@)",
-              [[AxsQuietSnapConfig axs_quietsnap_shared] axs_quietsnap_isEnabled] ? @"YES" : @"NO");
+        axs_install_volume_hooks();
+
+        axs_quietsnap_log(@"loaded in %@ (enabled=%@)", [[NSBundle mainBundle] bundleIdentifier],
+                          [[AxsQuietSnapConfig axs_quietsnap_shared] axs_quietsnap_isEnabled] ? @"YES" : @"NO");
+
+        // Some SpringBoard builds create the button object late; retry once.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            axs_install_volume_hooks();
+        });
     }
 }
