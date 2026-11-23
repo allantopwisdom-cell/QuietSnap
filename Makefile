@@ -1,0 +1,21 @@
+DEBUG = 0
+FINALPACKAGE = 1
+
+ARCHS = arm64 arm64e
+
+# Share the SDK and deployment targets with the PreferenceBundle.
+include AxsQuietSnapBuild.mk
+include $(THEOS)/makefiles/common.mk
+
+TWEAK_NAME = AxsQuietSnap
+AxsQuietSnap_FILES = $(wildcard Hooks/*.xm Sources/*.m)
+AxsQuietSnap_CFLAGS = -fobjc-arc -I./Headers -I./Sources
+AxsQuietSnap_FRAMEWORKS = UIKit Foundation CoreFoundation AVFoundation Photos AudioToolbox CoreMedia CoreGraphics
+AxsQuietSnap_LIBRARIES = substrate
+
+include $(THEOS_MAKE_PATH)/tweak.mk
+
+SUBPROJECTS += AxsQuietSnapPrefs
+SUBPROJECTS += AxsQuietSnapCCAudio
+SUBPROJECTS += AxsQuietSnapCCVideo
+include $(THEOS_MAKE_PATH)/aggregate.mk

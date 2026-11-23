@@ -1,0 +1,11 @@
+Package: com.axs.quietsnap
+Name: 静默快拍
+Version: 5.2.0
+Architecture: iphoneos-arm
+Description: Background photo, video and audio capture with volume-button gestures.
+Maintainer: Axs
+Author: Axs
+Section: Axs-Tweaks
+Depends: mobilesubstrate, preferenceloader, firmware (>= 15.0), com.opa334.ccsupport
+Icon: https://axs66.github.io/pro/icon/quietsnap.png
+Sileodepiction: https://axs66.github.io/pro/sileodepiction/quietsnap/js.json

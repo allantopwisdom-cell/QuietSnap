@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "name": "QuietSnap",
+  "id": "quietsnap",
+  "display_name": "静默快拍",
+  "class_prefix": "AxsQuietSnap",
+  "symbol_prefix": "axs_quietsnap",
+  "package": "com.axs.quietsnap",
+  "bundle": "com.apple.springboard",
+  "sdk_version": "16.5",
+  "minimum_ios": "15.0",
+  "preferences": true,
+  "slider": false,
+  "github_actions": true
+}
