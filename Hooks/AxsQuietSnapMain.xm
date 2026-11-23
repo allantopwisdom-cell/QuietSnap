@@ -2,12 +2,37 @@
 #import <UIKit/UIKit.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <objc/runtime.h>
-#import <substrate.h>
+#import <dlfcn.h>
 #import "AxsQuietSnapConfig.h"
 #import "AxsQuietSnapPrivate.h"
 #import "AxsQuietSnapGesture.h"
 #import "AxsQuietSnapCapture.h"
 #import "AxsQuietSnapLog.h"
+
+#pragma mark - Substrate (resolved at runtime)
+
+// The tweak must never hard-link libsubstrate: under RootHide the injected
+// process may not be able to resolve it, which makes dyld drop the whole
+// dylib without a single line of error output. Resolve it lazily instead.
+typedef void (*AxsMSHookFunction)(void *symbol, void *replace, void **result);
+
+static AxsMSHookFunction axs_ms_hook_function(void) {
+    static AxsMSHookFunction fn = NULL;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        const char *paths[] = {
+            "/usr/lib/libsubstrate.dylib",
+            "/usr/lib/libellekit.dylib",
+            "/usr/lib/substrate/libsubstrate.dylib",
+        };
+        for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]) && !fn; i++) {
+            void *handle = dlopen(paths[i], RTLD_LAZY);
+            if (handle) fn = (AxsMSHookFunction)dlsym(handle, "MSHookFunction");
+        }
+        axs_quietsnap_log(@"[hook] substrate=%s", fn ? "ok" : "missing");
+    });
+    return fn;
+}
 
 #pragma mark - Silent capture
 
@@ -210,19 +235,28 @@ static void axs_install_volume_hooks(void) {
 
 %ctor {
     @autoreleasepool {
+        // First statement on purpose: proves the dylib was injected even if a
+        // later stage fails.
+        axs_quietsnap_log(@"loaded in %@", [[NSBundle mainBundle] bundleIdentifier]);
+
         [AxsQuietSnapConfig axs_quietsnap_shared];
         [AxsQuietSnapGesture axs_quietsnap_shared];
 
-        MSHookFunction((void *)AudioServicesPlaySystemSound,
-                       (void *)axs_quietsnap_play_system_sound,
-                       (void **)&axs_quietsnap_original_play_system_sound);
-        MSHookFunction((void *)AudioServicesPlaySystemSoundWithCompletion,
-                       (void *)axs_quietsnap_play_system_sound_with_completion,
-                       (void **)&axs_quietsnap_original_play_system_sound_with_completion);
+        AxsMSHookFunction hook = axs_ms_hook_function();
+        if (hook) {
+            hook((void *)AudioServicesPlaySystemSound,
+                 (void *)axs_quietsnap_play_system_sound,
+                 (void **)&axs_quietsnap_original_play_system_sound);
+            hook((void *)AudioServicesPlaySystemSoundWithCompletion,
+                 (void *)axs_quietsnap_play_system_sound_with_completion,
+                 (void **)&axs_quietsnap_original_play_system_sound_with_completion);
+        } else {
+            axs_quietsnap_log(@"[hook] silenced audio hooking unavailable");
+        }
 
         axs_install_volume_hooks();
 
-        axs_quietsnap_log(@"loaded in %@ (enabled=%@)", [[NSBundle mainBundle] bundleIdentifier],
+        axs_quietsnap_log(@"init done (enabled=%@)",
                           [[AxsQuietSnapConfig axs_quietsnap_shared] axs_quietsnap_isEnabled] ? @"YES" : @"NO");
 
         // Some SpringBoard builds create the button object late; retry once.

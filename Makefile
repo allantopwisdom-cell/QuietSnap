@@ -11,7 +11,7 @@ TWEAK_NAME = AxsQuietSnap
 AxsQuietSnap_FILES = $(wildcard Hooks/*.xm Sources/*.m)
 AxsQuietSnap_CFLAGS = -fobjc-arc -I./Headers -I./Sources
 AxsQuietSnap_FRAMEWORKS = UIKit Foundation CoreFoundation AVFoundation Photos AudioToolbox CoreMedia CoreGraphics
-AxsQuietSnap_LIBRARIES = substrate
+# substrate is resolved with dlopen at runtime (see AxsQuietSnapMain.xm)
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
