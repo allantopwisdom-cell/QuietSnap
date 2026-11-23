@@ -1,0 +1,8 @@
+#!/bin/sh
+# RootHide: give the tweak the same .roothidepatch companion as native packages.
+DL=/Library/MobileSubstrate/DynamicLibraries
+AP=/usr/lib/DynamicPatches/AutoPatches.dylib
+if [ -f "$AP" ] && [ -f "$DL/AxsQuietSnap.dylib" ]; then
+    ln -sfn "$AP" "$DL/AxsQuietSnap.dylib.roothidepatch" 2>/dev/null
+fi
+exit 0
