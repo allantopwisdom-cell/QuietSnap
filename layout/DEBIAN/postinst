@@ -1,8 +1,26 @@
 #!/bin/sh
-# RootHide: give the tweak the same .roothidepatch companion as native packages.
+# RootHide: keep the tweak description identical to hand-installed packages.
 DL=/Library/MobileSubstrate/DynamicLibraries
 AP=/usr/lib/DynamicPatches/AutoPatches.dylib
 if [ -f "$AP" ] && [ -f "$DL/AxsQuietSnap.dylib" ]; then
     ln -sfn "$AP" "$DL/AxsQuietSnap.dylib.roothidepatch" 2>/dev/null
+fi
+# Theos converts the filter plist to binary; some RootHide ElleKit builds only
+# parse XML tweak descriptions, so rewrite ours as XML on install.
+P="$DL/AxsQuietSnap.plist"
+if [ -f "$P" ] && [ "$(head -c 5 "$P")" != "<?xml" ]; then
+    cat > "$P" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Filter</key>
+    <dict>
+        <key>Bundles</key>
+        <array><string>com.apple.springboard</string></array>
+    </dict>
+</dict>
+</plist>
+PLIST
 fi
 exit 0
