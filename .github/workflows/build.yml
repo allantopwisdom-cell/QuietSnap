@@ -20,7 +20,7 @@ jobs:
       - name: Setup Theos (RootHide)
         uses: Randomblock1/theos-action@v1
         with:
-          theos-dir: theos
+          theos-dir: ${{ github.workspace }}/theos
           theos-src: https://github.com/roothide/theos
 
       - name: Bump Package Version
